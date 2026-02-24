@@ -272,6 +272,31 @@ app.post('/api/users/:id/verify', authenticateToken, (req: any, res) => {
   res.json({ success: true, is_verified: newStatus });
 });
 
+// Admin Password Reset (Only hkahad can do this)
+app.post('/api/admin/reset-password', authenticateToken, async (req: any, res) => {
+  const { targetUserId, newPassword } = req.body;
+  
+  if (!targetUserId || !newPassword) {
+    return res.status(400).json({ error: 'Target user ID and new password are required' });
+  }
+
+  const currentUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id);
+  
+  if (!currentUser || currentUser.username !== 'hkahad') {
+    return res.status(403).json({ error: 'Only hkahad can reset passwords' });
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  const stmt = db.prepare('UPDATE users SET password = ? WHERE id = ?');
+  const result = stmt.run(hashedPassword, targetUserId);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  res.json({ success: true, message: 'Password reset successfully' });
+});
+
 // Create a post
 app.post('/api/posts', authenticateToken, upload.single('file'), (req: any, res) => {
   const { content } = req.body;
@@ -338,7 +363,16 @@ app.post('/api/auth/register', async (req, res) => {
     // Notify others about the new user
     notifyAllUsers('new_user', Number(userId), undefined, `New user ${username} joined!`);
     
-    console.log('User registered:', email);
+    // Auto-login: Create token and set cookie
+    const token = jwt.sign({ id: userId, username: username }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie('token', token, { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'none',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
+    console.log('User registered and logged in:', email);
     res.json({ id: userId, username, email });
   } catch (error: any) {
     console.error('Registration error:', error);
@@ -409,6 +443,26 @@ app.post('/api/auth/login', async (req, res) => {
   
   console.log('Login successful, token set');
   res.json({ id: user.id, username: user.username, bio: user.bio, avatar_url: user.avatar_url });
+});
+
+// Get user's conversations sorted by latest message
+app.get('/api/chats/conversations', authenticateToken, (req: any, res) => {
+  const conversations = db.prepare(`
+    SELECT 
+      users.id, users.username, users.avatar_url, users.is_verified,
+      MAX(messages.created_at) as last_message_time,
+      (SELECT content FROM messages m2 
+       WHERE (m2.sender_id = users.id AND m2.receiver_id = ?) 
+          OR (m2.sender_id = ? AND m2.receiver_id = users.id)
+       ORDER BY m2.created_at DESC LIMIT 1) as last_message
+    FROM users
+    JOIN messages ON (messages.sender_id = users.id AND messages.receiver_id = ?)
+                  OR (messages.sender_id = ? AND messages.receiver_id = users.id)
+    WHERE users.id != ?
+    GROUP BY users.id
+    ORDER BY last_message_time DESC
+  `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
+  res.json(conversations);
 });
 
 // Get Current User

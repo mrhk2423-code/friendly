@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Camera, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
+import { supabase } from '@/lib/supabase';
 
 interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
   bio: string;
@@ -34,100 +35,143 @@ export default function Profile() {
   const [realName, setRealName] = useState('');
   const [dob, setDob] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [updateError, setUpdateError] = useState('');
   const [posts, setPosts] = useState<Post[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then(async (res) => {
-        if (res.ok) {
-          const contentType = res.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            return res.json();
-          } else {
-            const text = await res.text();
-            console.error('Expected JSON but got:', text.substring(0, 100));
-            throw new Error('Invalid response format');
-          }
-        }
-        throw new Error('Not authenticated');
-      })
-      .then((data) => {
-        setUser(data);
-        setUsername(data.username || '');
-        setBio(data.bio || '');
-        setRealName(data.real_name || '');
-        setDob(data.date_of_birth || '');
-        fetchUserPosts(data.id);
-      })
-      .catch((err) => {
-        console.error('Profile fetch error:', err);
-        if (err.message === 'Not authenticated' || err.message === 'Invalid response format') {
-          navigate('/login');
-        }
-      });
+    const fetchMe = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) {
+        navigate('/login');
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Profile fetch error:', error);
+        return;
+      }
+
+      const userData = profile || { 
+        id: authUser.id, 
+        username: authUser.email?.split('@')[0], 
+        email: authUser.email,
+        bio: '',
+        avatar_url: '',
+        real_name: '',
+        date_of_birth: ''
+      };
+
+      setUser(userData);
+      setUsername(userData.username || '');
+      setBio(userData.bio || '');
+      setRealName(userData.real_name || '');
+      setDob(userData.date_of_birth || '');
+      fetchUserPosts(userData.id);
+    };
+
+    fetchMe();
   }, [navigate]);
 
-  const fetchUserPosts = async (userId: number) => {
+  const fetchUserPosts = async (userId: string) => {
     try {
-      const res = await fetch(`/api/users/${userId}/posts`);
-      if (res.ok) {
-        const data = await res.json();
-        setPosts(data);
-      }
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          *,
+          likes_count:likes(count),
+          comments_count:comments(count)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedPosts = data.map(p => ({
+        ...p,
+        likes_count: p.likes_count?.[0]?.count || 0,
+        comments_count: p.comments_count?.[0]?.count || 0,
+      }));
+
+      setPosts(formattedPosts);
     } catch (error) {
       console.error('Error fetching user posts:', error);
     }
   };
 
   const handleUpdate = async () => {
-    const res = await fetch('/api/users/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        username, 
-        bio, 
-        avatar_url: user?.avatar_url,
-        real_name: realName,
-        date_of_birth: dob
-      }),
-    });
-    if (res.ok) {
+    if (!user) return;
+    setIsSaving(true);
+    setUpdateError('');
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          username,
+          bio,
+          avatar_url: user.avatar_url,
+          real_name: realName,
+          date_of_birth: dob,
+          email: user.email
+        });
+
+      if (error) throw error;
+
       setUser((prev) => prev ? { ...prev, username, bio, real_name: realName, date_of_birth: dob } : null);
       setIsEditing(false);
-      navigate('/feed'); // Redirect to feed after update
+      alert('Profile updated successfully!');
+      navigate('/feed');
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      setUpdateError(error.message || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('avatar', file);
+    if (!file || !user) return;
 
     try {
-      const res = await fetch('/api/users/avatar', {
-        method: 'POST',
-        body: formData,
-      });
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
 
-      if (res.ok) {
-        const data = await res.json();
-        setUser((prev) => prev ? { ...prev, avatar_url: data.avatar_url } : null);
-        // Optional: Auto-redirect or just show success
-      } else {
-        console.error('Upload failed');
-      }
+      const { error: uploadError } = await supabase.storage
+        .from('media')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('media')
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .upsert({ id: user.id, avatar_url: publicUrl });
+
+      if (updateError) throw updateError;
+
+      setUser((prev) => prev ? { ...prev, avatar_url: publicUrl } : null);
     } catch (error) {
-      console.error('Error uploading file:', error);
+      console.error('Error uploading avatar:', error);
     }
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    navigate('/login');
+    await supabase.auth.signOut();
+    window.location.href = '/login';
   };
 
   if (!user) return <div>Loading...</div>;
@@ -210,7 +254,10 @@ export default function Profile() {
                     placeholder="Tell us about yourself..."
                   />
                 </div>
-                <Button onClick={handleUpdate} className="w-full">Save & Go to Feed</Button>
+                {updateError && <p className="text-red-500 text-sm">{updateError}</p>}
+                <Button onClick={handleUpdate} className="w-full" disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Save & Go to Feed'}
+                </Button>
               </div>
             ) : (
               <p className="text-gray-700 whitespace-pre-wrap">{user.bio || 'No bio yet.'}</p>

@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import io from 'socket.io-client';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,13 +10,9 @@ import {
   Video, 
   Mic, 
   X, 
-  Play, 
-  Pause,
   ArrowLeft
 } from 'lucide-react';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
-
-const socket = io();
 
 interface User {
   id: number;
@@ -41,6 +37,7 @@ interface Message {
 export default function Chat() {
   const [searchParams] = useSearchParams();
   const targetUserId = searchParams.get('userId');
+  const navigate = useNavigate();
   
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -54,20 +51,56 @@ export default function Chat() {
   const audioChunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLength = useRef(0);
+
+  // Use a stable socket instance
+  const socket = useMemo(() => io(), []);
 
   useEffect(() => {
     fetchCurrentUser();
     fetchUsers();
 
-    socket.on('receive_message', (data: any) => {
-      // Map incoming socket data if needed, but we'll try to keep it consistent
-      setMessages((prev) => [...prev, data]);
-    });
+    const handleMessage = (data: any) => {
+      // Move user to top of list if they are in the list
+      setUsers(prev => {
+        const senderId = data.senderId || data.sender_id;
+        const receiverId = data.receiverId || data.receiver_id;
+        const otherId = senderId === currentUser?.id ? receiverId : senderId;
+        
+        const userIndex = prev.findIndex(u => u.id === otherId);
+        if (userIndex > -1) {
+          const newUsers = [...prev];
+          const [user] = newUsers.splice(userIndex, 1);
+          return [user, ...newUsers];
+        }
+        return prev;
+      });
+
+      // Only add message if it belongs to the current chat room
+      if (currentUser && selectedUser) {
+        const currentRoomId = [currentUser.id, selectedUser.id].sort((a, b) => Number(a) - Number(b)).join('_');
+        if (data.roomId === currentRoomId) {
+          setMessages((prev) => {
+            // Avoid duplicate messages (optimistic update check)
+            const exists = prev.some(m => 
+              m.content === data.content && 
+              (m.senderId === data.senderId || m.sender_id === data.senderId) &&
+              Math.abs(new Date().getTime() - new Date().getTime()) < 1000 // Simple throttle check
+            );
+            if (exists && data.senderId === currentUser.id) return prev;
+            return [...prev, data];
+          });
+        }
+      }
+    };
+
+    socket.on('receive_message', handleMessage);
 
     return () => {
-      socket.off('receive_message');
+      socket.off('receive_message', handleMessage);
     };
-  }, []);
+  }, [currentUser, selectedUser, socket]);
 
   useEffect(() => {
     if (targetUserId && users.length > 0) {
@@ -78,7 +111,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (currentUser && selectedUser) {
-      const roomId = [currentUser.id, selectedUser.id].sort().join('_');
+      const roomId = [currentUser.id, selectedUser.id].sort((a, b) => Number(a) - Number(b)).join('_');
       socket.emit('join_room', roomId);
       
       // Fetch chat history
@@ -87,11 +120,22 @@ export default function Chat() {
         .then(data => setMessages(data))
         .catch(err => console.error('Failed to fetch chat history:', err));
     }
-  }, [currentUser, selectedUser]);
+  }, [currentUser, selectedUser, socket]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const container = scrollContainerRef.current;
+    if (!container || messages.length === 0) return;
+
+    const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 150;
+    const lastMessage = messages[messages.length - 1];
+    const isMe = lastMessage && (lastMessage.senderId === currentUser?.id || lastMessage.sender_id === currentUser?.id);
+    
+    if (prevMessagesLength.current === 0 || isAtBottom || isMe) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    prevMessagesLength.current = messages.length;
+  }, [messages, currentUser]);
 
   const fetchCurrentUser = async () => {
     try {
@@ -107,7 +151,8 @@ export default function Chat() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      // Fetch conversations first (sorted by latest message)
+      const res = await fetch('/api/chats/conversations');
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -153,14 +198,18 @@ export default function Chat() {
       }
     }
 
+    const roomId = [currentUser.id, selectedUser.id].sort((a, b) => Number(a) - Number(b)).join('_');
     const messageData = {
       senderId: currentUser.id,
       receiverId: selectedUser.id,
       content: input,
       mediaUrl,
       mediaType: mediaType as any,
-      roomId: [currentUser.id, selectedUser.id].sort().join('_'),
+      roomId: roomId,
     };
+
+    // Optimistic update
+    setMessages(prev => [...prev, messageData]);
 
     socket.emit('send_message', messageData);
     setInput('');
@@ -207,38 +256,37 @@ export default function Chat() {
   };
 
   if (!selectedUser) {
-    // ... (keep existing user list UI)
     return (
       <div className="container mx-auto p-4 max-w-2xl h-[calc(100vh-140px)]">
-        <Card className="h-full flex flex-col">
-          <CardHeader>
-            <CardTitle>Chats</CardTitle>
+        <Card className="h-full flex flex-col glass border-white/10 shadow-2xl rounded-2xl overflow-hidden">
+          <CardHeader className="border-b border-white/5">
+            <CardTitle className="text-2xl font-display font-bold text-white">Chats</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto">
-            <div className="space-y-2">
+          <CardContent className="flex-1 overflow-y-auto p-2">
+            <div className="space-y-1">
               {users.map((user) => (
                 <div 
                   key={user.id} 
-                  className="flex items-center gap-3 p-3 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors"
+                  className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
                   onClick={() => setSelectedUser(user)}
                 >
-                  <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden border border-gray-300 flex-shrink-0">
+                  <div className="w-14 h-14 rounded-full bg-white/5 overflow-hidden border border-white/10 flex-shrink-0">
                     {user.avatar_url ? (
                       <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-lg font-bold text-gray-500">
+                      <div className="w-full h-full flex items-center justify-center text-xl font-bold text-gray-400">
                         {user.username[0].toUpperCase()}
                       </div>
                     )}
                   </div>
-                  <div className="font-semibold text-gray-900 flex items-center gap-1">
+                  <div className="font-bold text-gray-200 group-hover:text-white flex items-center gap-1 text-lg">
                     <VerifiedBadge username={user.username} isVerified={user.is_verified} />
                     {user.username}
                   </div>
                 </div>
               ))}
               {users.length === 0 && (
-                <div className="text-center text-gray-500 mt-10">No other users found.</div>
+                <div className="text-center text-gray-500 mt-16">No other users found.</div>
               )}
             </div>
           </CardContent>
@@ -249,43 +297,43 @@ export default function Chat() {
 
   return (
     <div className="container mx-auto p-4 max-w-2xl h-[calc(100vh-140px)]">
-      <Card className="h-full flex flex-col shadow-md border-0 sm:border">
+      <Card className="h-full flex flex-col glass border-white/10 shadow-2xl rounded-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-3 border-b flex items-center gap-3 bg-white sticky top-0 z-10">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedUser(null)} className="-ml-2">
-            <ArrowLeft className="w-5 h-5" />
+        <div className="p-4 border-b border-white/5 flex items-center gap-4 bg-white/[0.02] backdrop-blur-md sticky top-0 z-10">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedUser(null)} className="-ml-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full">
+            <ArrowLeft className="w-6 h-6" />
           </Button>
-          <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+          <div className="w-12 h-12 rounded-full bg-white/5 overflow-hidden border border-white/10">
             {selectedUser.avatar_url ? (
               <img src={selectedUser.avatar_url} alt={selectedUser.username} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">
+              <div className="w-full h-full flex items-center justify-center text-lg font-bold text-gray-400">
                 {selectedUser.username[0].toUpperCase()}
               </div>
             )}
           </div>
-          <div className="font-semibold text-lg flex items-center gap-1">
+          <div className="font-bold text-xl flex items-center gap-1 text-white">
             <VerifiedBadge username={selectedUser.username} isVerified={selectedUser.is_verified} />
             {selectedUser.username}
           </div>
         </div>
         
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 space-y-6 bg-black/10">
           {messages.map((msg, idx) => {
             const senderId = msg.sender_id || msg.senderId;
             const isMe = senderId === currentUser?.id;
             return (
               <div key={idx} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div className={`flex max-w-[85%] ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end gap-2`}>
+                <div className={`flex max-w-[85%] ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end gap-3`}>
                   
                   {/* Avatar for other user */}
                   {!isMe && (
-                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 mb-1">
+                    <div className="w-9 h-9 rounded-full bg-white/5 overflow-hidden flex-shrink-0 mb-1 border border-white/10">
                       {selectedUser.avatar_url ? (
                         <img src={selectedUser.avatar_url} alt={selectedUser.username} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">
                           {selectedUser.username[0].toUpperCase()}
                         </div>
                       )}
@@ -295,24 +343,24 @@ export default function Chat() {
                   {/* Message Bubble */}
                   <div 
                     className={`
-                      px-4 py-2.5 rounded-[20px] shadow-sm break-words relative group
+                      px-4 py-3 rounded-[24px] shadow-lg break-words relative group
                       ${isMe 
-                        ? 'bg-blue-600 text-white rounded-br-none' 
-                        : 'bg-white text-gray-900 rounded-bl-none border border-gray-100'
+                        ? 'bg-blue-600 text-white rounded-br-none shadow-blue-500/20' 
+                        : 'bg-blue-900/40 text-white rounded-bl-none border border-blue-500/20'
                       }
                     `}
                   >
                     {(msg.mediaUrl || msg.media_url) && (
-                      <div className="mb-2 -mx-2 -mt-1">
+                      <div className="mb-3 -mx-2 -mt-1">
                         {(msg.mediaType === 'image' || msg.media_type === 'image') && (
-                          <img src={msg.mediaUrl || msg.media_url} alt="Shared" className="rounded-xl max-w-full max-h-[300px] object-cover shadow-sm" />
+                          <img src={msg.mediaUrl || msg.media_url} alt="Shared" className="rounded-2xl max-w-full max-h-[400px] object-cover shadow-2xl" />
                         )}
                         {(msg.mediaType === 'video' || msg.media_type === 'video') && (
-                          <video src={msg.mediaUrl || msg.media_url} controls className="rounded-xl max-w-full max-h-[300px] shadow-sm" />
+                          <video src={msg.mediaUrl || msg.media_url} controls className="rounded-2xl max-w-full max-h-[400px] shadow-2xl" />
                         )}
                         {(msg.mediaType === 'audio' || msg.media_type === 'audio') && (
-                          <div className={`p-2 rounded-xl ${isMe ? 'bg-blue-700' : 'bg-gray-50'}`}>
-                            <audio src={msg.mediaUrl || msg.media_url} controls className="w-full min-w-[200px]" />
+                          <div className={`p-3 rounded-2xl ${isMe ? 'bg-black/20' : 'bg-white/5'}`}>
+                            <audio src={msg.mediaUrl || msg.media_url} controls className="w-full min-w-[220px]" />
                           </div>
                         )}
                       </div>
@@ -320,7 +368,7 @@ export default function Chat() {
                     {msg.content && <p className="text-[15px] leading-relaxed font-medium">{msg.content}</p>}
                     
                     {/* Timestamp (Simulated) */}
-                    <div className={`text-[9px] mt-1 opacity-50 uppercase tracking-tighter ${isMe ? 'text-right' : 'text-left'}`}>
+                    <div className={`text-[10px] mt-1.5 opacity-40 font-bold uppercase tracking-wider ${isMe ? 'text-right' : 'text-left'}`}>
                       {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
@@ -332,27 +380,26 @@ export default function Chat() {
         </div>
 
         {/* Input Area */}
-        <div className="p-3 bg-white border-t">
-          {/* ... (keep existing input area logic) */}
+        <div className="p-4 bg-white/[0.02] border-t border-white/5 backdrop-blur-xl">
           {mediaFile && (
-            <div className="flex items-center gap-2 mb-2 p-2 bg-gray-100 rounded-lg">
-              <span className="text-sm truncate max-w-[200px]">{mediaFile.name}</span>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setMediaFile(null)}>
+            <div className="flex items-center gap-3 mb-3 p-3 bg-white/5 rounded-2xl border border-white/10">
+              <span className="text-sm truncate max-w-[200px] text-gray-300 font-medium">{mediaFile.name}</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-white hover:bg-white/10 rounded-full" onClick={() => setMediaFile(null)}>
                 <X className="w-4 h-4" />
               </Button>
             </div>
           )}
           {audioBlob && (
-            <div className="flex items-center gap-2 mb-2 p-2 bg-gray-100 rounded-lg">
-              <span className="text-sm">Voice Message Recorded</span>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setAudioBlob(null)}>
+            <div className="flex items-center gap-3 mb-3 p-3 bg-white/5 rounded-2xl border border-white/10">
+              <Mic className="w-5 h-5 text-accent animate-pulse" />
+              <span className="text-sm text-gray-300 font-medium">Voice Message Recorded</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-white hover:bg-white/10 rounded-full" onClick={() => setAudioBlob(null)}>
                 <X className="w-4 h-4" />
               </Button>
             </div>
           )}
           
-          <div className="flex items-center gap-2">
-             {/* ... (keep existing input buttons) */}
+          <div className="flex items-center gap-3">
              <input 
               type="file" 
               ref={fileInputRef} 
@@ -360,8 +407,8 @@ export default function Chat() {
               accept="image/*,video/*" 
               onChange={handleFileSelect} 
             />
-            <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()}>
-              <ImageIcon className="w-5 h-5 text-gray-500" />
+            <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-white hover:bg-white/10 rounded-full w-11 h-11">
+              <ImageIcon className="w-6 h-6" />
             </Button>
             
             <div className="flex-1 relative">
@@ -369,14 +416,14 @@ export default function Chat() {
                 value={input} 
                 onChange={(e) => setInput(e.target.value)} 
                 placeholder="Type a message..." 
-                className="pr-10 rounded-full bg-gray-100 border-none focus-visible:ring-1"
+                className="py-6 px-6 rounded-full bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus-visible:ring-accent focus-visible:border-accent"
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
               />
             </div>
 
             {input.trim() || mediaFile || audioBlob ? (
-              <Button onClick={handleSendMessage} size="icon" className="rounded-full bg-blue-600 hover:bg-blue-700">
-                <Send className="w-4 h-4" />
+              <Button onClick={handleSendMessage} size="icon" className="rounded-full w-12 h-12 bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30 transition-all hover:scale-105 active:scale-95">
+                <Send className="w-5 h-5" />
               </Button>
             ) : (
               <Button 
@@ -386,9 +433,9 @@ export default function Chat() {
                 onMouseUp={stopRecording}
                 onTouchStart={startRecording}
                 onTouchEnd={stopRecording}
-                className={`rounded-full ${isRecording ? 'animate-pulse' : ''}`}
+                className={`rounded-full w-12 h-12 transition-all ${isRecording ? 'animate-pulse bg-red-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
               >
-                <Mic className="w-5 h-5" />
+                <Mic className="w-6 h-6" />
               </Button>
             )}
           </div>

@@ -52,25 +52,25 @@ export default function Layout({ children }: LayoutProps) {
   const showBack = location.pathname !== '/feed' && location.pathname !== '/login' && location.pathname !== '/register';
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5] pb-20 font-sans">
+    <div className="min-h-screen pb-20 font-sans">
       {/* Top Header */}
-      <div className="bg-white sticky top-0 z-50 border-b border-gray-100">
+      <div className="glass sticky top-0 z-50 border-b border-white/5">
         <div className="max-w-md mx-auto flex justify-between items-center px-4 py-3">
           <div className="flex items-center gap-3">
             {showBack ? (
               <div 
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 cursor-pointer transition-colors"
                 onClick={() => navigate(-1)}
               >
-                <ArrowLeft className="w-5 h-5 text-gray-700" />
+                <ArrowLeft className="w-5 h-5 text-gray-300" />
               </div>
             ) : (
-              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50">
-                <Menu className="w-5 h-5 text-blue-600" />
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-accent/20">
+                <Menu className="w-5 h-5 text-accent" />
               </div>
             )}
             <h1 
-              className="text-xl font-extrabold text-blue-600 tracking-tighter cursor-pointer select-none" 
+              className="text-2xl font-display font-black text-accent tracking-tighter cursor-pointer select-none" 
               onClick={() => navigate('/feed')}
             >
               friendly
@@ -78,29 +78,29 @@ export default function Layout({ children }: LayoutProps) {
           </div>
           <div className="flex gap-2">
             <div 
-              className="w-9 h-9 bg-gray-50 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors"
+              className="w-9 h-9 bg-white/5 rounded-full flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors"
               onClick={() => navigate('/feed')}
             >
-              <Plus className="w-5 h-5 text-gray-700" />
+              <Plus className="w-5 h-5 text-gray-300" />
             </div>
             <div 
-              className="w-9 h-9 bg-gray-50 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors"
+              className="w-9 h-9 bg-white/5 rounded-full flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors"
               onClick={() => navigate('/search')}
             >
-              <Search className="w-5 h-5 text-gray-700" />
+              <Search className="w-5 h-5 text-gray-300" />
             </div>
             <div 
-              className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors ${isChat ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
+              className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all ${isChat ? 'bg-accent text-white shadow-lg shadow-accent/40' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}
               onClick={() => navigate('/chat')}
             >
               <MessageCircle className="w-5 h-5" />
             </div>
             <div 
-              className="w-9 h-9 bg-red-50 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-100 transition-colors"
+              className="w-9 h-9 bg-red-500/10 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-500/20 transition-colors"
               onClick={handleLogout}
               title="Logout"
             >
-              <LogOut className="w-5 h-5 text-red-600" />
+              <LogOut className="w-5 h-5 text-red-400" />
             </div>
           </div>
         </div>
@@ -131,11 +131,11 @@ export default function Layout({ children }: LayoutProps) {
             className="flex-1 flex justify-center py-3 cursor-pointer group"
             onClick={() => navigate('/profile')}
           >
-            <div className={`w-6 h-6 rounded-full overflow-hidden border-2 transition-all ${location.pathname === '/profile' ? 'border-blue-600 scale-110' : 'border-transparent group-hover:border-gray-300'}`}>
+            <div className={`w-6 h-6 rounded-full overflow-hidden border-2 transition-all ${location.pathname === '/profile' ? 'border-accent scale-110' : 'border-transparent group-hover:border-white/20'}`}>
               {currentUser?.avatar_url ? (
                 <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                <div className="w-full h-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-gray-400">
                   {currentUser?.username?.[0]?.toUpperCase()}
                 </div>
               )}
@@ -157,11 +157,11 @@ function NavItem({ icon, active, onClick }: { icon: React.ReactNode, active: boo
       className={`flex-1 flex justify-center py-3 cursor-pointer transition-all relative group`}
       onClick={onClick}
     >
-      <div className={`${active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'}`}>
+      <div className={`${active ? 'text-accent' : 'text-gray-500 group-hover:text-gray-300'}`}>
         {icon}
       </div>
       {active && (
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-600 rounded-full" />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-accent rounded-full shadow-[0_0_8px_rgba(124,58,237,0.6)]" />
       )}
     </div>
   );

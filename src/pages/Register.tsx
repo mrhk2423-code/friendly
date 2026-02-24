@@ -23,7 +23,7 @@ export default function Register() {
       });
       
       if (res.ok) {
-        navigate('/login');
+        navigate('/feed');
       } else {
         const data = await res.json();
         setError(data.error || 'Registration failed');
@@ -34,11 +34,11 @@ export default function Register() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <Card className="w-[350px]">
+    <div className="flex items-center justify-center min-h-screen">
+      <Card className="w-[350px] glass border-white/10">
         <CardHeader>
-          <CardTitle>Register</CardTitle>
-          <CardDescription>Create a new account to join the community.</CardDescription>
+          <CardTitle className="text-2xl font-display font-bold text-white">Register</CardTitle>
+          <CardDescription className="text-gray-400">Create a new account to join the community.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister}>
@@ -49,6 +49,7 @@ export default function Register() {
                   value={realName} 
                   onChange={(e) => setRealName(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -58,6 +59,7 @@ export default function Register() {
                   value={dob} 
                   onChange={(e) => setDob(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -66,6 +68,7 @@ export default function Register() {
                   value={username} 
                   onChange={(e) => setUsername(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -75,6 +78,7 @@ export default function Register() {
                   value={email} 
                   onChange={(e) => setEmail(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -84,16 +88,17 @@ export default function Register() {
                   value={password} 
                   onChange={(e) => setPassword(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && <p className="text-red-400 text-sm">{error}</p>}
             </div>
-            <Button className="w-full mt-4" type="submit">Sign Up</Button>
+            <Button className="w-full mt-6 bg-accent hover:bg-accent/90 text-white font-semibold" type="submit">Sign Up</Button>
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <p className="text-sm text-gray-500">
-            Already have an account? <Link to="/login" className="text-blue-500 hover:underline">Login</Link>
+          <p className="text-sm text-gray-400">
+            Already have an account? <Link to="/login" className="text-accent hover:underline">Login</Link>
           </p>
         </CardFooter>
       </Card>

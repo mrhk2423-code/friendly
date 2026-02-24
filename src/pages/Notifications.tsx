@@ -49,63 +49,63 @@ export default function Notifications() {
     if (notif.type === 'new_user') {
       navigate(`/users/${notif.sender_id}`);
     } else if (notif.type === 'new_post' || notif.type === 'like' || notif.type === 'comment') {
-      navigate('/feed'); // In a real app, we'd go to the specific post
+      navigate(`/feed?postId=${notif.post_id}`);
     }
   };
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'new_user': return <UserPlus className="w-5 h-5 text-green-500" />;
+      case 'new_user': return <UserPlus className="w-5 h-5 text-emerald-500" />;
       case 'new_post': return <FileText className="w-5 h-5 text-blue-500" />;
-      case 'like': return <CheckCircle className="w-5 h-5 text-red-500" />;
-      case 'comment': return <MessageSquare className="w-5 h-5 text-purple-500" />;
+      case 'like': return <CheckCircle className="w-5 h-5 text-rose-500" />;
+      case 'comment': return <MessageSquare className="w-5 h-5 text-amber-500" />;
       default: return <Bell className="w-5 h-5 text-gray-500" />;
     }
   };
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="p-4 border-b sticky top-0 bg-white z-10 flex items-center gap-2">
-        <Bell className="w-6 h-6 text-blue-600" />
-        <h1 className="text-xl font-bold">Notifications</h1>
+    <div className="min-h-screen">
+      <div className="p-4 border-b border-white/5 sticky top-0 glass z-10 flex items-center gap-3">
+        <Bell className="w-6 h-6 text-accent" />
+        <h1 className="text-xl font-display font-bold text-white">Notifications</h1>
       </div>
 
-      <div className="divide-y">
+      <div className="divide-y divide-white/5">
         {notifications.length > 0 ? (
           notifications.map((notif) => (
             <div 
               key={notif.id} 
-              className={`p-4 flex gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${!notif.is_read ? 'bg-blue-50' : ''}`}
+              className={`p-5 flex gap-4 cursor-pointer transition-all duration-300 ${!notif.is_read ? 'bg-accent/5 border-l-4 border-accent' : 'hover:bg-white/5'}`}
               onClick={() => handleNotificationClick(notif)}
             >
-              <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 border border-gray-200">
+              <div className="w-14 h-14 rounded-full bg-white/5 overflow-hidden flex-shrink-0 border border-white/10">
                 {notif.sender_avatar ? (
                   <img src={notif.sender_avatar} alt={notif.sender_username} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500 font-bold">
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 font-bold text-lg">
                     {notif.sender_username?.[0]?.toUpperCase() || '?'}
                   </div>
                 )}
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1.5">
                   {getIcon(notif.type)}
-                  <span className="font-semibold text-sm flex items-center gap-1">
-                    <VerifiedBadge username={notif.sender_username} isVerified={notif.sender_verified} className="w-3 h-3 bg-blue-500 text-white rounded-full font-bold text-[8px]" />
+                  <span className="font-bold text-gray-200 flex items-center gap-1">
+                    <VerifiedBadge username={notif.sender_username} isVerified={notif.sender_verified} />
                     {notif.sender_username}
                   </span>
                 </div>
-                <p className="text-sm text-gray-700">{notif.content}</p>
-                <span className="text-xs text-gray-500 mt-1 block">
+                <p className="text-[15px] text-gray-300 leading-relaxed">{notif.content}</p>
+                <span className="text-xs text-gray-500 mt-2 block font-medium">
                   {new Date(notif.created_at).toLocaleString()}
                 </span>
               </div>
             </div>
           ))
         ) : (
-          <div className="p-10 text-center text-gray-500">
-            <Bell className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p>No notifications yet</p>
+          <div className="p-20 text-center text-gray-500">
+            <Bell className="w-16 h-16 mx-auto mb-6 opacity-10" />
+            <p className="text-lg font-medium">No notifications yet</p>
           </div>
         )}
       </div>

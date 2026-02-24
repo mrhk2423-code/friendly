@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MessageCircle, User as UserIcon } from 'lucide-react';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
+import { supabase } from '@/lib/supabase';
 
 interface User {
-  id: number;
+  id: string;
   username: string;
   avatar_url: string;
   bio: string;
@@ -23,11 +24,15 @@ export default function Friends() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
-      }
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', authUser?.id)
+        .limit(50);
+      
+      if (error) throw error;
+      setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
     }

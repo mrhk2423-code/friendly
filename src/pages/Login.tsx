@@ -42,11 +42,11 @@ export default function Login() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <Card className="w-[350px]">
+    <div className="flex items-center justify-center min-h-screen">
+      <Card className="w-[350px] glass border-white/10">
         <CardHeader>
-          <CardTitle>friendly</CardTitle>
-          <CardDescription>Enter your credentials to access your account.</CardDescription>
+          <CardTitle className="text-3xl font-display font-bold text-white tracking-tight">friendly</CardTitle>
+          <CardDescription className="text-gray-400">Enter your credentials to access your account.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin}>
@@ -58,6 +58,7 @@ export default function Login() {
                   value={email} 
                   onChange={(e) => setEmail(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
               <div className="flex flex-col space-y-1.5">
@@ -67,16 +68,17 @@ export default function Login() {
                   value={password} 
                   onChange={(e) => setPassword(e.target.value)} 
                   required
+                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-accent"
                 />
               </div>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && <p className="text-red-400 text-sm">{error}</p>}
             </div>
-            <Button className="w-full mt-4" type="submit">Login</Button>
+            <Button className="w-full mt-6 bg-accent hover:bg-accent/90 text-white font-semibold" type="submit">Login</Button>
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <p className="text-sm text-gray-500">
-            Don't have an account? <Link to="/register" className="text-blue-500 hover:underline">Sign up</Link>
+          <p className="text-sm text-gray-400">
+            Don't have an account? <Link to="/register" className="text-accent hover:underline">Sign up</Link>
           </p>
         </CardFooter>
       </Card>

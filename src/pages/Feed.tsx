@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
   MoreHorizontal, 
@@ -54,13 +54,25 @@ export default function Feed() {
   const [isSharing, setIsSharing] = useState<Post | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const postRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   useEffect(() => {
     fetchPosts();
     fetchCurrentUser();
     fetchUsers();
   }, []);
+
+  useEffect(() => {
+    const postId = searchParams.get('postId');
+    if (postId && posts.length > 0) {
+      const id = parseInt(postId);
+      setTimeout(() => {
+        postRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 500);
+    }
+  }, [searchParams, posts]);
 
   const fetchUsers = async () => {
     try {
@@ -210,7 +222,7 @@ export default function Feed() {
   const handleShare = (user: any) => {
     if (!isSharing || !currentUser) return;
     
-    const roomId = [currentUser.id, user.id].sort().join('_');
+    const roomId = [currentUser.id, user.id].sort((a, b) => Number(a) - Number(b)).join('_');
     const messageData = {
       senderId: currentUser.id,
       receiverId: user.id,
@@ -226,25 +238,25 @@ export default function Feed() {
   };
 
   return (
-    <div className="bg-gray-100">
+    <div className="">
       {/* Create Post Section */}
-      <div className="bg-white p-4 mt-2 mb-2 shadow-sm">
+      <div className="glass p-4 mt-4 mb-4 rounded-2xl border-white/10">
         <div className="flex gap-3 items-center">
           <div 
-            className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden cursor-pointer"
+            className="w-10 h-10 rounded-full bg-white/5 overflow-hidden cursor-pointer border border-white/10"
             onClick={() => navigate('/profile')}
           >
             {currentUser?.avatar_url ? (
               <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-500 font-bold">
+              <div className="w-full h-full flex items-center justify-center text-gray-400 font-bold">
                 {currentUser?.username?.[0]?.toUpperCase()}
               </div>
             )}
           </div>
           <div className="flex-1">
             <input 
-              className="w-full py-2 px-4 rounded-full border border-gray-300 bg-gray-50 focus:outline-none focus:bg-gray-100 transition-colors text-sm"
+              className="w-full py-2.5 px-5 rounded-full border border-white/10 bg-white/5 focus:outline-none focus:bg-white/10 focus:border-accent transition-all text-sm text-white placeholder:text-gray-500"
               value={content} 
               onChange={(e) => setContent(e.target.value)} 
               placeholder="What's on your mind?" 
@@ -253,19 +265,19 @@ export default function Feed() {
         </div>
 
         {mediaPreview && (
-          <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200">
+          <div className="mt-4 relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
             {mediaFile?.type.startsWith('image/') ? (
               <img src={mediaPreview} alt="Preview" className="w-full max-h-60 object-cover" />
             ) : mediaFile?.type.startsWith('video/') ? (
               <video src={mediaPreview} className="w-full max-h-60" controls />
             ) : (
-              <div className="p-4 bg-gray-50 flex items-center gap-2">
-                <Mic className="w-5 h-5 text-blue-600" />
-                <span className="text-sm text-gray-600">{mediaFile?.name}</span>
+              <div className="p-6 bg-white/5 flex items-center gap-3">
+                <Mic className="w-6 h-6 text-accent" />
+                <span className="text-sm text-gray-300 font-medium">{mediaFile?.name}</span>
               </div>
             )}
             <button 
-              className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full hover:bg-black/70"
+              className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-black/80 backdrop-blur-md transition-all"
               onClick={() => { setMediaFile(null); setMediaPreview(null); }}
             >
               <X className="w-4 h-4" />
@@ -273,28 +285,28 @@ export default function Feed() {
           </div>
         )}
 
-        <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
-          <div className="flex gap-1">
+        <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/5">
+          <div className="flex gap-2">
             <button 
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-100 transition-colors text-gray-600"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 transition-all text-gray-400 hover:text-white"
               onClick={() => fileInputRef.current?.click()}
             >
-              <ImageIcon className="w-5 h-5 text-green-500" />
-              <span className="text-xs font-medium">Photo</span>
+              <ImageIcon className="w-5 h-5 text-emerald-400" />
+              <span className="text-xs font-semibold">Photo</span>
             </button>
             <button 
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-100 transition-colors text-gray-600"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 transition-all text-gray-400 hover:text-white"
               onClick={() => fileInputRef.current?.click()}
             >
-              <Video className="w-5 h-5 text-red-500" />
-              <span className="text-xs font-medium">Video</span>
+              <Video className="w-5 h-5 text-rose-400" />
+              <span className="text-xs font-semibold">Video</span>
             </button>
             <button 
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-100 transition-colors text-gray-600"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 transition-all text-gray-400 hover:text-white"
               onClick={() => fileInputRef.current?.click()}
             >
-              <Mic className="w-5 h-5 text-orange-500" />
-              <span className="text-xs font-medium">Audio</span>
+              <Mic className="w-5 h-5 text-amber-400" />
+              <span className="text-xs font-semibold">Audio</span>
             </button>
           </div>
           <input 
@@ -305,7 +317,7 @@ export default function Feed() {
             onChange={handleFileSelect} 
           />
           {(content.trim() || mediaFile) && (
-            <Button onClick={handlePost} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-6">
+            <Button onClick={handlePost} size="sm" className="bg-accent hover:bg-accent/90 text-white rounded-xl px-8 font-bold shadow-lg shadow-accent/20">
               Post
             </Button>
           )}
@@ -313,15 +325,19 @@ export default function Feed() {
       </div>
 
       {/* Feed Posts */}
-      <div className="space-y-3 pb-4">
+      <div className="space-y-4 pb-6">
         {posts.map((post) => (
-          <div key={post.id} className="bg-white shadow-sm border-b border-gray-100 overflow-hidden">
+          <div 
+            key={post.id} 
+            ref={el => postRefs.current[post.id] = el}
+            className="glass rounded-2xl border-white/10 overflow-hidden shadow-xl"
+          >
             {/* Post Header */}
             <div className="flex justify-between items-center p-4">
               <div className="flex gap-3 items-center">
                 <div 
-                  className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden border border-gray-100 cursor-pointer"
-                  onClick={() => navigate(`/users/${post.user_id || post.id}`)} // Assuming user_id is available or id is user_id in some contexts
+                  className="w-11 h-11 rounded-full bg-white/5 overflow-hidden border border-white/10 cursor-pointer"
+                  onClick={() => navigate(`/users/${post.user_id || post.id}`)}
                 >
                   {post.avatar_url ? (
                     <img src={post.avatar_url} alt={post.username} className="w-full h-full object-cover" />
@@ -332,27 +348,27 @@ export default function Feed() {
                   )}
                 </div>
                 <div>
-                  <div className="font-bold text-[15px] text-gray-900 leading-tight hover:underline cursor-pointer flex items-center gap-1">
+                  <div className="font-bold text-[16px] text-white leading-tight hover:text-accent transition-colors cursor-pointer flex items-center gap-1">
                     <VerifiedBadge username={post.username} isVerified={post.is_verified} />
                     {post.username}
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] text-gray-400 mt-0.5 font-medium uppercase tracking-wider">
+                  <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-1 font-semibold uppercase tracking-wider">
                     <span>{new Date(post.created_at).toLocaleDateString()}</span>
                     <span>•</span>
                     <Globe className="w-3 h-3" />
                   </div>
                 </div>
               </div>
-              <div className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-50 cursor-pointer transition-colors">
-                <MoreHorizontal className="w-5 h-5 text-gray-400" />
+              <div className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/5 cursor-pointer transition-colors">
+                <MoreHorizontal className="w-5 h-5 text-gray-500" />
               </div>
             </div>
 
             {/* Post Content */}
-            <div className="px-4 pb-3">
-              {post.content && <p className="text-[15px] text-gray-800 whitespace-pre-wrap leading-relaxed mb-3">{post.content}</p>}
+            <div className="px-4 pb-4">
+              {post.content && <p className="text-[15px] text-gray-300 whitespace-pre-wrap leading-relaxed mb-4">{post.content}</p>}
               {post.media_url && (
-                <div className="rounded-xl overflow-hidden border border-gray-100 bg-gray-50 mb-2">
+                <div className="rounded-2xl overflow-hidden border border-white/5 bg-black/20 mb-3">
                   {post.media_type === 'image' && (
                     <img src={post.media_url} alt="Post media" className="w-full max-h-[500px] object-contain" />
                   )}
@@ -369,20 +385,20 @@ export default function Feed() {
             </div>
 
             {/* Post Stats */}
-            <div className="px-4 py-2 flex justify-between items-center text-[13px] text-gray-500 border-t border-gray-50">
-              <div className="flex items-center gap-1.5">
+            <div className="px-4 py-3 flex justify-between items-center text-[13px] text-gray-500 border-t border-white/5">
+              <div className="flex items-center gap-2">
                 {post.likes_count > 0 && (
-                  <div className="flex items-center -space-x-1">
-                    <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white">
-                      <ThumbsUp className="w-2.5 h-2.5 text-white fill-current" />
+                  <div className="flex items-center -space-x-1.5">
+                    <div className="w-6 h-6 bg-accent rounded-full flex items-center justify-center border-2 border-bg shadow-lg">
+                      <ThumbsUp className="w-3 h-3 text-white fill-current" />
                     </div>
-                    <span className="pl-2 font-medium">{post.likes_count}</span>
+                    <span className="pl-3 font-semibold text-gray-400">{post.likes_count}</span>
                   </div>
                 )}
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-4">
                 {post.comments_count > 0 && (
-                  <span className="hover:underline cursor-pointer font-medium" onClick={() => toggleComments(post.id)}>
+                  <span className="hover:text-accent cursor-pointer font-semibold transition-colors" onClick={() => toggleComments(post.id)}>
                     {post.comments_count} comments
                   </span>
                 )}
@@ -390,7 +406,7 @@ export default function Feed() {
             </div>
 
             {/* Post Actions */}
-            <div className="px-2 py-1 flex justify-between items-center border-t border-gray-50">
+            <div className="px-2 py-1.5 flex justify-between items-center border-t border-white/5 bg-white/[0.02]">
               <ActionButton 
                 icon={<ThumbsUp className={`w-5 h-5 ${post.is_liked ? 'fill-current' : ''}`} />} 
                 label="Like" 
@@ -411,26 +427,28 @@ export default function Feed() {
 
             {/* Share Modal */}
             {isSharing && (
-              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-2xl w-full max-w-md flex flex-col max-h-[80vh]">
-                  <div className="p-4 border-b flex justify-between items-center">
-                    <h3 className="font-bold">Share with Friends</h3>
-                    <button onClick={() => setIsSharing(null)}><X className="w-6 h-6" /></button>
+              <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="glass rounded-3xl w-full max-w-md flex flex-col max-h-[80vh] border-white/10 shadow-2xl">
+                  <div className="p-5 border-b border-white/10 flex justify-between items-center">
+                    <h3 className="font-display font-bold text-xl text-white">Share with Friends</h3>
+                    <button onClick={() => setIsSharing(null)} className="p-2 hover:bg-white/10 rounded-full transition-all text-gray-400 hover:text-white">
+                      <X className="w-6 h-6" />
+                    </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     {users.map(user => (
                       <div 
                         key={user.id} 
-                        className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl cursor-pointer"
+                        className="flex items-center justify-between p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
                         onClick={() => handleShare(user)}
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden">
-                            {user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">{user.username[0]}</div>}
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-full bg-white/5 overflow-hidden border border-white/10">
+                            {user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-400">{user.username[0]}</div>}
                           </div>
-                          <span className="font-medium">{user.username}</span>
+                          <span className="font-semibold text-gray-200 group-hover:text-white">{user.username}</span>
                         </div>
-                        <Send className="w-5 h-5 text-blue-600" />
+                        <Send className="w-5 h-5 text-accent group-hover:scale-110 transition-transform" />
                       </div>
                     ))}
                   </div>
@@ -440,52 +458,52 @@ export default function Feed() {
 
             {/* Comments Section */}
             {activeCommentPostId === post.id && (
-              <div className="px-3 py-2 bg-gray-50">
-                <div className="space-y-3 mb-3">
+              <div className="px-4 py-4 bg-white/[0.03] border-t border-white/5">
+                <div className="space-y-4 mb-5">
                   {comments[post.id]?.map((comment) => (
-                    <div key={comment.id} className="flex gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
+                    <div key={comment.id} className="flex gap-3">
+                      <div className="w-9 h-9 rounded-full bg-white/5 overflow-hidden flex-shrink-0 border border-white/10">
                         {comment.avatar_url ? (
                           <img src={comment.avatar_url} alt={comment.username} className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                          <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">
                             {comment.username[0].toUpperCase()}
                           </div>
                         )}
                       </div>
-                      <div className="bg-gray-200 rounded-2xl px-3 py-2">
-                        <div className="font-semibold text-xs flex items-center gap-1">
-                          <VerifiedBadge username={comment.username} isVerified={comment.is_verified} className="w-3 h-3 bg-blue-500 text-white rounded-full font-bold text-[8px]" />
+                      <div className="bg-white/5 rounded-2xl px-4 py-2.5 border border-white/5">
+                        <div className="font-bold text-xs flex items-center gap-1 text-white mb-1">
+                          <VerifiedBadge username={comment.username} isVerified={comment.is_verified} className="w-3 h-3 bg-accent text-white rounded-full font-bold text-[8px]" />
                           {comment.username}
                         </div>
-                        <div className="text-sm">{comment.content}</div>
+                        <div className="text-[14px] text-gray-300 leading-relaxed">{comment.content}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 items-center">
-                  <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
+                <div className="flex gap-3 items-center">
+                  <div className="w-9 h-9 rounded-full bg-white/5 overflow-hidden flex-shrink-0 border border-white/10">
                     {currentUser?.avatar_url ? (
                       <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                      <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">
                         {currentUser?.username?.[0]?.toUpperCase()}
                       </div>
                     )}
                   </div>
                   <div className="flex-1 relative">
                     <input 
-                      className="w-full py-2 pl-3 pr-10 rounded-full border border-gray-300 focus:outline-none focus:border-blue-500 text-sm"
+                      className="w-full py-2.5 pl-4 pr-12 rounded-full border border-white/10 bg-white/5 focus:outline-none focus:border-accent text-sm text-white placeholder:text-gray-500"
                       placeholder="Write a comment..."
                       value={commentInput}
                       onChange={(e) => setCommentInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleCommentSubmit(post.id)}
                     />
                     <button 
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600 hover:text-blue-700"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-accent hover:scale-110 transition-transform"
                       onClick={() => handleCommentSubmit(post.id)}
                     >
-                      <Send className="w-4 h-4" />
+                      <Send className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
@@ -501,7 +519,7 @@ export default function Feed() {
 function ActionButton({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
   return (
     <button 
-      className={`flex-1 flex items-center justify-center gap-2 py-2.5 hover:bg-gray-50 rounded-lg transition-all active:scale-95 ${active ? 'text-blue-600' : 'text-gray-500'}`}
+      className={`flex-1 flex items-center justify-center gap-2 py-3 hover:bg-white/5 rounded-xl transition-all active:scale-95 ${active ? 'text-accent' : 'text-gray-500 hover:text-gray-300'}`}
       onClick={onClick}
     >
       {icon}
