@@ -52,17 +52,21 @@ const notifyAllUsers = (type: string, senderId: number, postId?: number, content
   });
 };
 
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // Auth Middleware
 const authenticateToken = (req: any, res: any, next: any) => {
   const token = req.cookies.token;
-  console.log('Auth Token:', token ? 'Present' : 'Missing');
   
-  if (!token) return res.sendStatus(401);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
     if (err) {
       console.log('Token verification failed:', err.message);
-      return res.sendStatus(403);
+      return res.status(403).json({ error: 'Forbidden' });
     }
     req.user = user;
     next();
@@ -145,6 +149,7 @@ io.on('connection', (socket) => {
   
   socket.on('join_room', (room) => {
     socket.join(room);
+    console.log(`User joined room: ${room}`);
   });
 
   socket.on('send_message', (data) => {
@@ -152,8 +157,11 @@ io.on('connection', (socket) => {
     const stmt = db.prepare('INSERT INTO messages (sender_id, receiver_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?)');
     stmt.run(data.senderId, data.receiverId, data.content, data.mediaUrl, data.mediaType || 'text');
     
-    // Emit to room
+    // Emit to the specific chat room
     io.to(data.roomId).emit('receive_message', data);
+    
+    // Also emit to the receiver's personal room so they get a notification/update their list
+    io.to(`user_${data.receiverId}`).emit('receive_message', data);
   });
 
   socket.on('disconnect', () => {
@@ -190,7 +198,7 @@ app.post('/api/posts/:id/like', authenticateToken, (req: any, res) => {
       db.prepare('INSERT INTO likes (user_id, post_id) VALUES (?, ?)').run(userId, postId);
       
       // Notify post owner
-      const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(postId);
+      const post: any = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(postId);
       if (post && post.user_id !== userId) {
         createNotification(post.user_id, 'like', userId, Number(postId), 'liked your post');
       }
@@ -211,7 +219,7 @@ app.post('/api/posts/:id/comment', authenticateToken, (req: any, res) => {
   stmt.run(req.user.id, req.params.id, content);
 
   // Notify post owner
-  const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
+  const post: any = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
   if (post && post.user_id !== req.user.id) {
     createNotification(post.user_id, 'comment', req.user.id, Number(req.params.id), `commented: ${content.substring(0, 30)}`);
   }
@@ -257,13 +265,13 @@ app.get('/api/users/:id', authenticateToken, (req: any, res) => {
 // Toggle Verification (Only hkahad can do this)
 app.post('/api/users/:id/verify', authenticateToken, (req: any, res) => {
   const targetUserId = req.params.id;
-  const currentUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id);
+  const currentUser: any = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id);
   
   if (!currentUser || currentUser.username !== 'hkahad') {
     return res.status(403).json({ error: 'Only hkahad can verify users' });
   }
 
-  const user = db.prepare('SELECT is_verified FROM users WHERE id = ?').get(targetUserId);
+  const user: any = db.prepare('SELECT is_verified FROM users WHERE id = ?').get(targetUserId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const newStatus = user.is_verified ? 0 : 1;
@@ -280,7 +288,7 @@ app.post('/api/admin/reset-password', authenticateToken, async (req: any, res) =
     return res.status(400).json({ error: 'Target user ID and new password are required' });
   }
 
-  const currentUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id);
+  const currentUser: any = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id);
   
   if (!currentUser || currentUser.username !== 'hkahad') {
     return res.status(403).json({ error: 'Only hkahad can reset passwords' });
@@ -467,9 +475,17 @@ app.get('/api/chats/conversations', authenticateToken, (req: any, res) => {
 
 // Get Current User
 app.get('/api/auth/me', authenticateToken, (req: any, res) => {
-  const stmt = db.prepare('SELECT id, username, email, bio, avatar_url, real_name, date_of_birth, is_verified FROM users WHERE id = ?');
-  const user = stmt.get(req.user.id);
-  res.json(user);
+  try {
+    const stmt = db.prepare('SELECT id, username, email, bio, avatar_url, real_name, date_of_birth, is_verified FROM users WHERE id = ?');
+    const user = stmt.get(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Error in /api/auth/me:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Update Profile

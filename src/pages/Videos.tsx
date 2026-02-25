@@ -3,7 +3,9 @@ import { Play, Heart, MessageCircle, Share2, Globe, Plus, X, Video as VideoIcon,
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
-import { supabase } from '@/lib/supabase';
+import io from 'socket.io-client';
+
+const socket = io();
 
 interface VideoPost {
   id: number;
@@ -73,14 +75,10 @@ export default function Videos() {
 
   const fetchCurrentUser = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', authUser.id)
-          .single();
-        setCurrentUser(profile || { id: authUser.id, username: authUser.email?.split('@')[0] });
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data);
       }
     } catch (error) {
       console.error('Error fetching current user:', error);
@@ -89,12 +87,11 @@ export default function Videos() {
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .limit(50);
-      if (error) throw error;
-      setUsers(data || []);
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
     } catch (error) {
       console.error('Error fetching users:', error);
     }
@@ -102,33 +99,11 @@ export default function Videos() {
 
   const fetchVideos = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          profiles:user_id (username, avatar_url, is_verified),
-          likes_count:likes(count),
-          comments_count:comments(count),
-          is_liked:likes!left(user_id)
-        `)
-        .eq('media_type', 'video')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formatted = data.map(v => ({
-        ...v,
-        username: v.profiles?.username,
-        avatar_url: v.profiles?.avatar_url,
-        is_verified: v.profiles?.is_verified,
-        likes_count: v.likes_count?.[0]?.count || 0,
-        comments_count: v.comments_count?.[0]?.count || 0,
-        is_liked: authUser ? v.is_liked?.some((l: any) => l.user_id === authUser.id) : false
-      }));
-
-      setVideos(formatted);
+      const res = await fetch('/api/videos');
+      if (res.ok) {
+        const data = await res.json();
+        setVideos(data);
+      }
     } catch (error) {
       console.error('Error fetching videos:', error);
     }
@@ -137,33 +112,17 @@ export default function Videos() {
   const handleLike = async (videoId: number) => {
     if (!currentUser) return;
     try {
-      const video = videos.find(v => v.id === videoId);
-      if (!video) return;
-
-      if (video.is_liked) {
-        await supabase
-          .from('likes')
-          .delete()
-          .eq('post_id', videoId)
-          .eq('user_id', currentUser.id);
-      } else {
-        await supabase
-          .from('likes')
-          .insert([{ post_id: videoId, user_id: currentUser.id }]);
+      const res = await fetch(`/api/posts/${videoId}/like`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setVideos(prev => prev.map(v => 
+          v.id === videoId 
+            ? { ...v, is_liked: data.liked, likes_count: v.likes_count + (data.liked ? 1 : -1) } 
+            : v
+        ));
       }
-
-      setVideos(videos.map(v => {
-        if (v.id === videoId) {
-          return {
-            ...v,
-            is_liked: !v.is_liked,
-            likes_count: v.is_liked ? v.likes_count - 1 : v.likes_count + 1
-          };
-        }
-        return v;
-      }));
     } catch (error) {
-      console.error('Error liking video:', error);
+      console.error('Error toggling like:', error);
     }
   };
 
@@ -174,25 +133,11 @@ export default function Videos() {
       setActiveCommentVideoId(videoId);
       if (!comments[videoId]) {
         try {
-          const { data, error } = await supabase
-            .from('comments')
-            .select(`
-              *,
-              profiles:user_id (username, avatar_url, is_verified)
-            `)
-            .eq('post_id', videoId)
-            .order('created_at', { ascending: true });
-
-          if (error) throw error;
-
-          const formatted = data.map(c => ({
-            ...c,
-            username: c.profiles?.username,
-            avatar_url: c.profiles?.avatar_url,
-            is_verified: c.profiles?.is_verified
-          }));
-
-          setComments(prev => ({ ...prev, [videoId]: formatted }));
+          const res = await fetch(`/api/posts/${videoId}/comments`);
+          if (res.ok) {
+            const data = await res.json();
+            setComments(prev => ({ ...prev, [videoId]: data }));
+          }
         } catch (error) {
           console.error('Error fetching comments:', error);
         }
@@ -203,40 +148,24 @@ export default function Videos() {
   const handleCommentSubmit = async (videoId: number) => {
     if (!commentInput.trim() || !currentUser) return;
     try {
-      const { error } = await supabase
-        .from('comments')
-        .insert([{
-          post_id: videoId,
-          user_id: currentUser.id,
-          content: commentInput
-        }]);
-
-      if (error) throw error;
-
-      setCommentInput('');
-      
-      const { data, error: fetchError } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          profiles:user_id (username, avatar_url, is_verified)
-        `)
-        .eq('post_id', videoId)
-        .order('created_at', { ascending: true });
-
-      if (fetchError) throw fetchError;
-
-      const formatted = data.map(c => ({
-        ...c,
-        username: c.profiles?.username,
-        avatar_url: c.profiles?.avatar_url,
-        is_verified: c.profiles?.is_verified
-      }));
-
-      setComments(prev => ({ ...prev, [videoId]: formatted }));
-      setVideos(videos.map(v => 
-        v.id === videoId ? { ...v, comments_count: v.comments_count + 1 } : v
-      ));
+      const res = await fetch(`/api/posts/${videoId}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: commentInput }),
+      });
+      if (res.ok) {
+        setCommentInput('');
+        
+        const resComments = await fetch(`/api/posts/${videoId}/comments`);
+        if (resComments.ok) {
+          const data = await resComments.json();
+          setComments(prev => ({ ...prev, [videoId]: data }));
+        }
+        
+        setVideos(prev => prev.map(v => 
+          v.id === videoId ? { ...v, comments_count: v.comments_count + 1 } : v
+        ));
+      }
     } catch (error) {
       console.error('Error posting comment:', error);
     }
@@ -252,66 +181,43 @@ export default function Videos() {
 
   const handlePostVideo = async () => {
     if (!videoFile || !currentUser) return;
+    const formData = new FormData();
+    formData.append('file', videoFile);
+    formData.append('content', content);
+
     try {
-      const fileExt = videoFile.name.split('.').pop();
-      const fileName = `${currentUser.id}-${Math.random()}.${fileExt}`;
-      const filePath = `videos/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('media')
-        .upload(filePath, videoFile);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(filePath);
-
-      const { error } = await supabase
-        .from('posts')
-        .insert([{
-          user_id: currentUser.id,
-          content,
-          media_url: publicUrl,
-          media_type: 'video'
-        }]);
-
-      if (error) throw error;
-
-      setIsPosting(false);
-      setVideoFile(null);
-      setVideoPreview(null);
-      setContent('');
-      fetchVideos();
+      const res = await fetch('/api/posts', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        setIsPosting(false);
+        setVideoFile(null);
+        setVideoPreview(null);
+        setContent('');
+        fetchVideos();
+      }
     } catch (error) {
       console.error('Error posting video:', error);
     }
   };
 
-  const handleShare = async (user: any) => {
+  const handleShare = (user: any) => {
     if (!isSharing || !currentUser) return;
     
-    const roomId = [currentUser.id, user.id].sort().join('_');
-    
-    try {
-      const { error } = await supabase
-        .from('messages')
-        .insert([{
-          sender_id: currentUser.id,
-          receiver_id: user.id,
-          content: `Check out this video: ${isSharing.content}`,
-          media_url: isSharing.media_url,
-          media_type: 'video',
-          room_id: roomId
-        }]);
+    const roomId = [currentUser.id, user.id].sort((a, b) => Number(a) - Number(b)).join('_');
+    const messageData = {
+      senderId: currentUser.id,
+      receiverId: user.id,
+      content: `Check out this video: ${isSharing.content}`,
+      mediaUrl: isSharing.media_url,
+      mediaType: 'video',
+      roomId: roomId,
+    };
 
-      if (error) throw error;
-
-      setIsSharing(null);
-      alert(`Shared with ${user.username}!`);
-    } catch (error) {
-      console.error('Error sharing video:', error);
-    }
+    socket.emit('send_message', messageData);
+    setIsSharing(null);
+    alert(`Shared with ${user.username}!`);
   };
 
   return (

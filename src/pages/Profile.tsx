@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Camera, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
-import { supabase } from '@/lib/supabase';
 
 interface User {
   id: string;
@@ -42,66 +41,36 @@ export default function Profile() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchMe = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        navigate('/login');
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Profile fetch error:', error);
-        return;
-      }
-
-      const userData = profile || { 
-        id: authUser.id, 
-        username: authUser.email?.split('@')[0], 
-        email: authUser.email,
-        bio: '',
-        avatar_url: '',
-        real_name: '',
-        date_of_birth: ''
-      };
-
-      setUser(userData);
-      setUsername(userData.username || '');
-      setBio(userData.bio || '');
-      setRealName(userData.real_name || '');
-      setDob(userData.date_of_birth || '');
-      fetchUserPosts(userData.id);
-    };
-
     fetchMe();
-  }, [navigate]);
+  }, []);
 
-  const fetchUserPosts = async (userId: string) => {
+  const fetchMe = async () => {
     try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          likes_count:likes(count),
-          comments_count:comments(count)
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const userData = await res.json();
+        setUser(userData);
+        setUsername(userData.username || '');
+        setBio(userData.bio || '');
+        setRealName(userData.real_name || '');
+        setDob(userData.date_of_birth || '');
+        fetchUserPosts(userData.id);
+      } else {
+        navigate('/login');
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      navigate('/login');
+    }
+  };
 
-      if (error) throw error;
-
-      const formattedPosts = data.map(p => ({
-        ...p,
-        likes_count: p.likes_count?.[0]?.count || 0,
-        comments_count: p.comments_count?.[0]?.count || 0,
-      }));
-
-      setPosts(formattedPosts);
+  const fetchUserPosts = async (userId: string | number) => {
+    try {
+      const res = await fetch(`/api/users/${userId}/posts`);
+      if (res.ok) {
+        const data = await res.json();
+        setPosts(data);
+      }
     } catch (error) {
       console.error('Error fetching user posts:', error);
     }
@@ -112,24 +81,26 @@ export default function Profile() {
     setIsSaving(true);
     setUpdateError('');
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          username,
-          bio,
+      const res = await fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username, 
+          bio, 
           avatar_url: user.avatar_url,
           real_name: realName,
-          date_of_birth: dob,
-          email: user.email
-        });
+          date_of_birth: dob
+        }),
+      });
 
-      if (error) throw error;
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to update profile');
+      }
 
       setUser((prev) => prev ? { ...prev, username, bio, real_name: realName, date_of_birth: dob } : null);
       setIsEditing(false);
       alert('Profile updated successfully!');
-      navigate('/feed');
     } catch (error: any) {
       console.error('Error updating profile:', error);
       setUpdateError(error.message || 'Failed to update profile');
@@ -142,36 +113,32 @@ export default function Profile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
+    const formData = new FormData();
+    formData.append('avatar', file);
+
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const res = await fetch('/api/users/avatar', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const { error: uploadError } = await supabase.storage
-        .from('media')
-        .upload(filePath, file);
+      if (!res.ok) throw new Error('Upload failed');
 
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(filePath);
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .upsert({ id: user.id, avatar_url: publicUrl });
-
-      if (updateError) throw updateError;
-
-      setUser((prev) => prev ? { ...prev, avatar_url: publicUrl } : null);
+      const data = await res.json();
+      setUser((prev) => prev ? { ...prev, avatar_url: data.avatar_url } : null);
     } catch (error) {
       console.error('Error uploading avatar:', error);
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/login';
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      window.location.href = '/login';
+    }
   };
 
   if (!user) return <div>Loading...</div>;

@@ -73,8 +73,18 @@ export default function Chat() {
           const newUsers = [...prev];
           const [user] = newUsers.splice(userIndex, 1);
           return [user, ...newUsers];
+        } else {
+          // If the user isn't in the list, we might want to fetch them or just wait for refresh
+          // For now, let's just fetch the user details and add them to the top
+          fetch(`/api/users/${otherId}`)
+            .then(res => res.json())
+            .then(user => {
+              if (user && !user.error) {
+                setUsers(current => [user, ...current.filter(u => u.id !== user.id)]);
+              }
+            });
+          return prev;
         }
-        return prev;
       });
 
       // Only add message if it belongs to the current chat room
@@ -103,11 +113,31 @@ export default function Chat() {
   }, [currentUser, selectedUser, socket]);
 
   useEffect(() => {
-    if (targetUserId && users.length > 0) {
-      const user = users.find(u => u.id === parseInt(targetUserId));
-      if (user) setSelectedUser(user);
+    if (targetUserId) {
+      const existingUser = users.find(u => u.id === parseInt(targetUserId));
+      if (existingUser) {
+        setSelectedUser(existingUser);
+      } else {
+        // Fetch user details if not in the conversation list
+        fetch(`/api/users/${targetUserId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && !data.error) {
+              setSelectedUser(data);
+              // Optionally add to users list so they appear in the sidebar
+              setUsers(prev => [data, ...prev.filter(u => u.id !== data.id)]);
+            }
+          })
+          .catch(err => console.error('Failed to fetch target user:', err));
+      }
     }
   }, [targetUserId, users]);
+
+  useEffect(() => {
+    if (currentUser) {
+      socket.emit('join_room', `user_${currentUser.id}`);
+    }
+  }, [currentUser, socket]);
 
   useEffect(() => {
     if (currentUser && selectedUser) {
@@ -126,10 +156,17 @@ export default function Chat() {
     const container = scrollContainerRef.current;
     if (!container || messages.length === 0) return;
 
+    // Check if user is near the bottom (within 150px)
     const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 150;
+    
+    // Check if the last message was sent by the current user
     const lastMessage = messages[messages.length - 1];
     const isMe = lastMessage && (lastMessage.senderId === currentUser?.id || lastMessage.sender_id === currentUser?.id);
     
+    // Scroll to bottom if:
+    // 1. It's the first time messages are loaded (prevMessagesLength is 0)
+    // 2. User is already at the bottom
+    // 3. Current user sent the message
     if (prevMessagesLength.current === 0 || isAtBottom || isMe) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -255,38 +292,129 @@ export default function Chat() {
     }
   };
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.trim()) {
+        fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}`)
+          .then(res => res.json())
+          .then(data => setSearchResults(data))
+          .catch(err => console.error('Search failed:', err));
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    if (!selectedUser && users.length === 0) {
+      fetch('/api/users')
+        .then(res => res.json())
+        .then(data => setAllUsers(data))
+        .catch(err => console.error('Failed to fetch all users:', err));
+    }
+  }, [selectedUser, users]);
+
   if (!selectedUser) {
     return (
       <div className="container mx-auto p-4 max-w-2xl h-[calc(100vh-140px)]">
         <Card className="h-full flex flex-col glass border-white/10 shadow-2xl rounded-2xl overflow-hidden">
-          <CardHeader className="border-b border-white/5">
+          <CardHeader className="border-b border-white/5 space-y-4">
             <CardTitle className="text-2xl font-display font-bold text-white">Chats</CardTitle>
+            <div className="relative">
+              <Input 
+                placeholder="Search people to message..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-white/5 border-white/10 rounded-xl pl-4 h-12 text-white placeholder:text-gray-500"
+              />
+            </div>
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto p-2">
             <div className="space-y-1">
-              {users.map((user) => (
-                <div 
-                  key={user.id} 
-                  className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
-                  onClick={() => setSelectedUser(user)}
-                >
-                  <div className="w-14 h-14 rounded-full bg-white/5 overflow-hidden border border-white/10 flex-shrink-0">
-                    {user.avatar_url ? (
-                      <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xl font-bold text-gray-400">
-                        {user.username[0].toUpperCase()}
+              {searchQuery.trim() ? (
+                searchResults.map((user) => (
+                  <div 
+                    key={user.id} 
+                    className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
+                    onClick={() => {
+                      setSelectedUser(user);
+                      setSearchQuery('');
+                    }}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-white/5 overflow-hidden border border-white/10 flex-shrink-0">
+                      {user.avatar_url ? (
+                        <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-lg font-bold text-gray-400">
+                          {user.username[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="font-bold text-gray-200 group-hover:text-white flex items-center gap-1">
+                      <VerifiedBadge username={user.username} isVerified={user.is_verified} />
+                      {user.username}
+                    </div>
+                  </div>
+                ))
+              ) : users.length > 0 ? (
+                users.map((user) => (
+                  <div 
+                    key={user.id} 
+                    className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
+                    onClick={() => setSelectedUser(user)}
+                  >
+                    <div className="w-14 h-14 rounded-full bg-white/5 overflow-hidden border border-white/10 flex-shrink-0">
+                      {user.avatar_url ? (
+                        <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xl font-bold text-gray-400">
+                          {user.username[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="font-bold text-gray-200 group-hover:text-white flex items-center gap-1 text-lg">
+                      <VerifiedBadge username={user.username} isVerified={user.is_verified} />
+                      {user.username}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="space-y-4">
+                  <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Suggested People</div>
+                  {allUsers.map((user) => (
+                    <div 
+                      key={user.id} 
+                      className="flex items-center gap-4 p-4 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group"
+                      onClick={() => setSelectedUser(user)}
+                    >
+                      <div className="w-12 h-12 rounded-full bg-white/5 overflow-hidden border border-white/10 flex-shrink-0">
+                        {user.avatar_url ? (
+                          <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-lg font-bold text-gray-400">
+                            {user.username[0].toUpperCase()}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="font-bold text-gray-200 group-hover:text-white flex items-center gap-1 text-lg">
-                    <VerifiedBadge username={user.username} isVerified={user.is_verified} />
-                    {user.username}
-                  </div>
+                      <div className="font-bold text-gray-200 group-hover:text-white flex items-center gap-1">
+                        <VerifiedBadge username={user.username} isVerified={user.is_verified} />
+                        {user.username}
+                      </div>
+                    </div>
+                  ))}
+                  {allUsers.length === 0 && (
+                    <div className="text-center text-gray-500 mt-16">No users found. Try searching!</div>
+                  )}
                 </div>
-              ))}
-              {users.length === 0 && (
-                <div className="text-center text-gray-500 mt-16">No other users found.</div>
+              )}
+              {searchQuery && searchResults.length === 0 && (
+                <div className="text-center text-gray-500 mt-16">No users found for "{searchQuery}"</div>
               )}
             </div>
           </CardContent>
