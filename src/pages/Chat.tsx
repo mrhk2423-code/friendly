@@ -74,8 +74,6 @@ export default function Chat() {
           const [user] = newUsers.splice(userIndex, 1);
           return [user, ...newUsers];
         } else {
-          // If the user isn't in the list, we might want to fetch them or just wait for refresh
-          // For now, let's just fetch the user details and add them to the top
           fetch(`/api/users/${otherId}`)
             .then(res => res.json())
             .then(user => {
@@ -92,13 +90,26 @@ export default function Chat() {
         const currentRoomId = [currentUser.id, selectedUser.id].sort((a, b) => Number(a) - Number(b)).join('_');
         if (data.roomId === currentRoomId) {
           setMessages((prev) => {
-            // Avoid duplicate messages (optimistic update check)
-            const exists = prev.some(m => 
-              m.content === data.content && 
+            // Improved duplicate check: check if message with same content and sender exists in last 2 seconds
+            const now = Date.now();
+            const isDuplicate = prev.some(m => 
+              (m.content === data.content) && 
               (m.senderId === data.senderId || m.sender_id === data.senderId) &&
-              Math.abs(new Date().getTime() - new Date().getTime()) < 1000 // Simple throttle check
+              (m.mediaUrl === data.mediaUrl || m.media_url === data.mediaUrl)
             );
-            if (exists && data.senderId === currentUser.id) return prev;
+            
+            // If it's from me, it's already added optimistically
+            if (isDuplicate && (data.senderId === currentUser.id || data.sender_id === currentUser.id)) return prev;
+            
+            // If it's from someone else but we already have it (e.g. double emit)
+            if (isDuplicate && prev.length > 0) {
+               // Check if the last message is the same (most common case for double emit)
+               const lastMsg = prev[prev.length - 1];
+               if (lastMsg.content === data.content && (lastMsg.senderId === data.senderId || lastMsg.sender_id === data.senderId)) {
+                 return prev;
+               }
+            }
+
             return [...prev, data];
           });
         }
@@ -153,22 +164,29 @@ export default function Chat() {
   }, [currentUser, selectedUser, socket]);
 
   useEffect(() => {
+    if (selectedUser) {
+      prevMessagesLength.current = 0;
+    }
+  }, [selectedUser]);
+
+  useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || messages.length === 0) return;
 
-    // Check if user is near the bottom (within 150px)
-    const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 150;
+    // Check if user is near the bottom (within 200px)
+    const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 200;
     
     // Check if the last message was sent by the current user
     const lastMessage = messages[messages.length - 1];
     const isMe = lastMessage && (lastMessage.senderId === currentUser?.id || lastMessage.sender_id === currentUser?.id);
     
-    // Scroll to bottom if:
-    // 1. It's the first time messages are loaded (prevMessagesLength is 0)
-    // 2. User is already at the bottom
-    // 3. Current user sent the message
     if (prevMessagesLength.current === 0 || isAtBottom || isMe) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const scrollTimeout = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ 
+          behavior: prevMessagesLength.current === 0 ? 'auto' : 'smooth' 
+        });
+      }, 50);
+      return () => clearTimeout(scrollTimeout);
     }
     
     prevMessagesLength.current = messages.length;
