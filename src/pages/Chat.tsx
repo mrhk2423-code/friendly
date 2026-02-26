@@ -66,9 +66,9 @@ export default function Chat() {
       setUsers(prev => {
         const senderId = data.senderId || data.sender_id;
         const receiverId = data.receiverId || data.receiver_id;
-        const otherId = senderId === currentUser?.id ? receiverId : senderId;
+        const otherId = String(senderId) === String(currentUser?.id) ? receiverId : senderId;
         
-        const userIndex = prev.findIndex(u => u.id === otherId);
+        const userIndex = prev.findIndex(u => String(u.id) === String(otherId));
         if (userIndex > -1) {
           const newUsers = [...prev];
           const [user] = newUsers.splice(userIndex, 1);
@@ -78,7 +78,7 @@ export default function Chat() {
             .then(res => res.json())
             .then(user => {
               if (user && !user.error) {
-                setUsers(current => [user, ...current.filter(u => u.id !== user.id)]);
+                setUsers(current => [user, ...current.filter(u => String(u.id) !== String(user.id))]);
               }
             });
           return prev;
@@ -90,22 +90,20 @@ export default function Chat() {
         const currentRoomId = [currentUser.id, selectedUser.id].sort((a, b) => Number(a) - Number(b)).join('_');
         if (data.roomId === currentRoomId) {
           setMessages((prev) => {
-            // Improved duplicate check: check if message with same content and sender exists in last 2 seconds
-            const now = Date.now();
+            // Improved duplicate check: check if message with same content and sender exists
             const isDuplicate = prev.some(m => 
               (m.content === data.content) && 
-              (m.senderId === data.senderId || m.sender_id === data.senderId) &&
+              (String(m.senderId || m.sender_id) === String(data.senderId || data.sender_id)) &&
               (m.mediaUrl === data.mediaUrl || m.media_url === data.mediaUrl)
             );
             
             // If it's from me, it's already added optimistically
-            if (isDuplicate && (data.senderId === currentUser.id || data.sender_id === currentUser.id)) return prev;
+            if (isDuplicate && (String(data.senderId || data.sender_id) === String(currentUser.id))) return prev;
             
             // If it's from someone else but we already have it (e.g. double emit)
             if (isDuplicate && prev.length > 0) {
-               // Check if the last message is the same (most common case for double emit)
                const lastMsg = prev[prev.length - 1];
-               if (lastMsg.content === data.content && (lastMsg.senderId === data.senderId || lastMsg.sender_id === data.senderId)) {
+               if (lastMsg.content === data.content && (String(lastMsg.senderId || lastMsg.sender_id) === String(data.senderId || data.sender_id))) {
                  return prev;
                }
             }
@@ -178,7 +176,7 @@ export default function Chat() {
     
     // Check if the last message was sent by the current user
     const lastMessage = messages[messages.length - 1];
-    const isMe = lastMessage && (lastMessage.senderId === currentUser?.id || lastMessage.sender_id === currentUser?.id);
+    const isMe = lastMessage && (String(lastMessage.senderId || lastMessage.sender_id) === String(currentUser?.id));
     
     if (prevMessagesLength.current === 0 || isAtBottom || isMe) {
       const scrollTimeout = setTimeout(() => {
@@ -468,7 +466,7 @@ export default function Chat() {
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 space-y-6 bg-black/10">
           {messages.map((msg, idx) => {
             const senderId = msg.sender_id || msg.senderId;
-            const isMe = senderId === currentUser?.id;
+            const isMe = String(senderId) === String(currentUser?.id);
             return (
               <div key={idx} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
                 <div className={`flex max-w-[85%] ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end gap-3`}>

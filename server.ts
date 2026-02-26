@@ -503,25 +503,47 @@ app.get('/api/users/:id/posts', authenticateToken, async (req: any, res) => {
 
 // Conversations
 app.get('/api/chats/conversations', authenticateToken, async (req: any, res) => {
-  // This is complex in Supabase without a custom function, but we'll try a simpler version
-  // Get all users I've messaged or who messaged me
-  const { data: sent } = await supabase.from('messages').select('receiver_id').eq('sender_id', req.user.id);
-  const { data: received } = await supabase.from('messages').select('sender_id').eq('receiver_id', req.user.id);
-  
-  const userIds = Array.from(new Set([
-    ...(sent?.map(m => m.receiver_id) || []),
-    ...(received?.map(m => m.sender_id) || [])
-  ]));
+  try {
+    // Get all messages involving the current user
+    const { data: messages, error: msgError } = await supabase
+      .from('messages')
+      .select('sender_id, receiver_id, created_at')
+      .or(`sender_id.eq.${req.user.id},receiver_id.eq.${req.user.id}`)
+      .order('created_at', { ascending: false });
 
-  if (userIds.length === 0) return res.json([]);
+    if (msgError) throw msgError;
 
-  const { data: users, error } = await supabase
-    .from('users')
-    .select('id, username, avatar_url, is_verified')
-    .in('id', userIds);
+    // Extract unique other user IDs and their latest message time
+    const userLastMsgMap = new Map<string, string>();
+    messages?.forEach(m => {
+      const otherId = String(m.sender_id) === String(req.user.id) ? String(m.receiver_id) : String(m.sender_id);
+      if (!userLastMsgMap.has(otherId)) {
+        userLastMsgMap.set(otherId, m.created_at);
+      }
+    });
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(users);
+    const userIds = Array.from(userLastMsgMap.keys());
+    if (userIds.length === 0) return res.json([]);
+
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('id, username, avatar_url, is_verified')
+      .in('id', userIds);
+
+    if (userError) throw userError;
+
+    // Sort users by their latest message time
+    const sortedUsers = users.sort((a, b) => {
+      const timeA = new Date(userLastMsgMap.get(String(a.id)) || 0).getTime();
+      const timeB = new Date(userLastMsgMap.get(String(b.id)) || 0).getTime();
+      return timeB - timeA;
+    });
+
+    res.json(sortedUsers);
+  } catch (error: any) {
+    console.error('Conversations error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Current User
